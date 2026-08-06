@@ -1,0 +1,72 @@
+## agentic-serving (GPU / P/D-disaggregated) guide overrides for the llm-d
+## router — session-affinity variant.
+## Layer on top of: recipes/router/base.values.yaml
+##
+## Identical to nemotron-3-super-pd.values.yaml except the prefill profile's
+## prefix-cache-affinity-filter is replaced with session-affinity-scorer
+## (strategy: session_id, sourced from the agent-identity request attribute,
+## profileName: prefill) for testing sticky per-agent-session routing instead
+## of prefix-cache locality. The decode profile has no affinity plugin here
+## either, matching nemotron-3-super-pd.values.yaml and upstream's own
+## agentic-serving-gpu.values.yaml (decode profile only ever used
+## decode-filter + active-request-scorer, no prefix/session affinity plugin
+## on that leg in either baseline). agent-identity must be enabled as a
+## top-level plugin so the attribute the scorer reads actually gets
+## populated — see its README (llm-d-inference-scheduler
+## pkg/epp/framework/plugins/requestcontrol/requestheader/agentidentity).
+##
+## inferencePool.create is set to false because the InferencePool CRD cannot
+## be created on all clusters (no cluster-wide CRD-install permission);
+## upstream's own guides assume the GAIE CRDs are installed cluster-wide
+## instead (see the guide doc's GAIE CRD prerequisite step) and don't set
+## this override themselves.
+
+router:
+  inferencePool:
+    create: false
+
+  extraServicePorts:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8081
+
+  epp:
+    pluginsConfigFile: "nemotron-3-super-pd-session-affinity-plugins.yaml"
+    pluginsCustomConfig:
+      nemotron-3-super-pd-session-affinity-plugins.yaml: |
+        apiVersion: llm-d.ai/v1alpha1
+        kind: EndpointPickerConfig
+        plugins:
+        - type: agent-identity
+        - type: disagg-headers-handler
+        - type: always-disagg-pd-decider
+        - type: disagg-profile-handler
+          parameters:
+            deciderPluginName: always-disagg-pd-decider
+        - type: prefill-filter
+        - type: decode-filter
+        - type: active-request-scorer
+        - type: token-load-scorer
+        - type: session-affinity-scorer
+          parameters:
+            profileName: prefill
+            strategy: session_id
+            sessionIdConfig:
+              sources:
+                - attribute: agent-identity
+        - type: inflight-load-producer
+        schedulingProfiles:
+        - name: prefill
+          plugins:
+          - pluginRef: prefill-filter
+          - pluginRef: token-load-scorer
+          - pluginRef: session-affinity-scorer
+        - name: decode
+          plugins:
+          - pluginRef: decode-filter
+          - pluginRef: active-request-scorer
+
+  modelServers:
+    matchLabels:
+      llm-d.ai/guide: "nemotron-3-super-pd"

@@ -1,0 +1,54 @@
+## agentic-serving (GPU / decode-only) guide overrides for the llm-d router —
+## session-affinity variant.
+## Layer on top of: recipes/router/base.values.yaml
+##
+## Identical to nemotron-3-super-decode-only.values.yaml except
+## prefix-cache-affinity-filter is replaced with session-affinity-scorer
+## (strategy: session_id, sourced from the agent-identity request attribute)
+## for testing sticky per-agent-session routing instead of prefix-cache
+## locality. agent-identity must be enabled as a top-level plugin so the
+## attribute the scorer reads actually gets populated — see its README:
+## ../../recipes/router (llm-d-inference-scheduler
+## pkg/epp/framework/plugins/requestcontrol/requestheader/agentidentity).
+##
+## inferencePool.create is set to false because the InferencePool CRD cannot
+## be created on all clusters (no cluster-wide CRD-install permission);
+## upstream's own guides assume the GAIE CRDs are installed cluster-wide
+## instead (see the guide doc's GAIE CRD prerequisite step) and don't set
+## this override themselves.
+
+router:
+  inferencePool:
+    create: false
+
+  extraServicePorts:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8081
+
+  epp:
+    pluginsConfigFile: "nemotron-3-super-decode-only-session-affinity-plugins.yaml"
+    pluginsCustomConfig:
+      nemotron-3-super-decode-only-session-affinity-plugins.yaml: |
+        apiVersion: llm-d.ai/v1alpha1
+        kind: EndpointPickerConfig
+        plugins:
+        - type: agent-identity
+        - type: token-load-scorer
+        - type: inflight-load-producer
+        - type: session-affinity-scorer
+          parameters:
+            strategy: session_id
+            sessionIdConfig:
+              sources:
+                - attribute: agent-identity
+        schedulingProfiles:
+        - name: default
+          plugins:
+          - pluginRef: session-affinity-scorer
+          - pluginRef: token-load-scorer
+
+  modelServers:
+    matchLabels:
+      llm-d.ai/guide: "nemotron-3-super-decode-only"

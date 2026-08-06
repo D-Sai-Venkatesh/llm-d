@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prefill
+spec:
+  replicas: 3
+  # Default is 600s — too short for this model's real download+load time
+  # (observed ~9min just for weight download from HF on a real cluster run).
+  progressDeadlineSeconds: 2400
+  template:
+    spec:
+      containers:
+        - name: modelserver
+          command: ["vllm", "serve"]
+          args:
+            - "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+            - "--trust-remote-code"
+            - "--tensor-parallel-size=4"
+            - "--enable-expert-parallel"
+            - "--kv-cache-dtype=fp8"
+            - "--enable-auto-tool-choice"
+            - "--enable-prefix-caching"
+            - "--tool-call-parser=qwen3_coder"
+            - "--reasoning-parser=nemotron_v3"
+            - "--kv-transfer-config"
+            - '{"kv_connector":"MultiConnector","kv_role":"kv_both","kv_load_failure_policy":"fail","kv_connector_extra_config":{"connectors":[{"kv_connector":"NixlConnector","kv_role":"kv_producer","kv_connector_extra_config":{"bidirectional_kv_xfer":true}},{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":107374182400,"lazy_offload":true}}]}}'
+          env:
+            # Mamba-hybrid model (NemotronHForCausalLM); improves multi-turn
+            # prefix-cache hit rate. vLLM rejects this flag on full-attention
+            # models, so keep it scoped to this guide, not the shared recipe.
+            - name: VLLM_PREFIX_CACHE_RETENTION_INTERVAL
+              value: "0"
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: llm-d-hf-token
+                  key: HF_TOKEN
+            - name: VLLM_SSM_CONV_STATE_LAYOUT
+              value: "DS"
+            - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: VLLM_HTTP_TIMEOUT_KEEP_ALIVE
+              value: "120"
+          resources:
+            limits:
+              cpu: "24"
+              memory: 420Gi
+              nvidia.com/gpu: "4"
+            requests:
+              cpu: "16"
+              memory: 252Gi
+              nvidia.com/gpu: "4"
+          volumeMounts:
+            - mountPath: /dev/shm
+              name: shm
+            - mountPath: /.cache
+              name: torch-compile-cache
+            - mountPath: /.config
+              name: vllm-config
+            - mountPath: /.triton
+              name: triton-cache
+            # Not in upstream's patch-prefill.yaml — the flashinfer allreduce
+            # backend crashes on startup without a writable /.tensorrt_llm on
+            # vllm/vllm-openai:v0.25.0 (root filesystem is read-only there).
+            - mountPath: /.tensorrt_llm
+              name: tensorrt-llm-cache
+          startupProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 80   # ~40min; 120B loads faster than upstream's 550B (2h budget)
+          livenessProbe:
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 40Gi
+        - name: torch-compile-cache
+          emptyDir: {}
+        - name: vllm-config
+          emptyDir: {}
+        - name: triton-cache
+          emptyDir: {}
+        - name: tensorrt-llm-cache
+          emptyDir: {}

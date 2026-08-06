@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../../../recipes/modelserver/base/single-host/default
+
+namePrefix: nemotron-3-super-decode-only-
+
+components:
+  - ../../../../../recipes/modelserver/components/images/gpu-vllm
+
+labels:
+  - pairs:
+      llm-d.ai/guide: nemotron-3-super-decode-only
+      llm-d.ai/model: NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+      llm-d.ai/accelerator-variant: gpu
+      llm-d.ai/accelerator-vendor: nvidia
+      llm-d.ai/engine-type: vllm
+    includeSelectors: true
+    includeTemplates: true
+
+patches:
+  - path: patch-decode.yaml

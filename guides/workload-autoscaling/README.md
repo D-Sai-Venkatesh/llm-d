@@ -1,6 +1,7 @@
 # Workload Autoscaling
 
-[![E2E (OCP GPU)](https://github.com/llm-d/llm-d/actions/workflows/consolidate-status-workload-autoscaling-ibm-acc-gpu-vllm-x.yaml/badge.svg)](https://github.com/llm-d/llm-d/actions/workflows/consolidate-status-workload-autoscaling-ibm-acc-gpu-vllm-x.yaml)
+[![WVA E2E (OCP GPU)](https://github.com/llm-d/llm-d/actions/workflows/consolidate-status-workload-autoscaling-ibm-acc-gpu-vllm-x.yaml/badge.svg)](https://github.com/llm-d/llm-d/actions/workflows/consolidate-status-workload-autoscaling-ibm-acc-gpu-vllm-x.yaml)
+[![KEDA+EPP Queue E2E (OCP GPU)](https://github.com/llm-d/llm-d/actions/workflows/consolidate-status-workload-autoscaling-keda-epp-ibm-acc-gpu-vllm-x.yaml/badge.svg)](https://github.com/llm-d/llm-d/actions/workflows/consolidate-status-workload-autoscaling-keda-epp-ibm-acc-gpu-vllm-x.yaml)
 
 Traditional autoscaling indicators like resource utilization metrics (CPU/GPU) are often lagging indicators — they only reflect saturation after it has already occurred, by which point latency has spiked and requests may be failing. For LLM inference, this problem is compounded by the fact that GPU utilization is often pegged near 100% during active batching regardless of actual load, making it an entirely unreliable signal.
 
@@ -36,7 +37,7 @@ See the [Prometheus Adapter guide](./promadapter.md) for installation instructio
 
 ## Paths
 
-### KEDA + EPP Metrics
+### KEDA + EPP Metrics (Recommended)
 
 #### Queue-based Autoscaling
 
@@ -59,7 +60,7 @@ The [Saturation-based Autoscaling](./README.epp-keda-saturation.md) path has KED
 
 A specialization of this path drives the HPA from the pool's **latency** rather than its queue depth. The [SLO-Aware Autoscaling](./README.slo-aware.md) sub-path scales directly against latency SLOs, using the EPP's **estimated** TTFT/TPOT as the signal — either its ML-predicted latency (from the online-trained predictor) or the actual measured latency aggregated in real time when the predictor isn't enabled. A Prometheus recording rule turns that estimate into a single saturation ratio (latency ÷ SLO), and a KEDA `ScaledObject` with an [expr-lang](https://expr-lang.org/) formula computes the desired replica count and drives a standard HPA — no custom controller. With the ML predictor, capacity is added as pressure builds rather than after the queue has already formed. Best when clients express per-request latency SLOs and you want scaling driven by the objective itself rather than a proxy metric.
 
-### KEDA + WVA Metrics
+### KEDA + WVA Metrics (Legacy)
 
 The [Workload Variant Autoscaler (WVA)](./README.wva.md) path integrates KEDA with the aggregated signal emitted by WVA: `wva_desired_replicas`.
 

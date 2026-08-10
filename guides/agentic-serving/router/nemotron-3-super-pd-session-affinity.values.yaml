@@ -4,16 +4,17 @@
 ##
 ## Identical to nemotron-3-super-pd.values.yaml except the prefill profile's
 ## prefix-cache-affinity-filter is replaced with session-affinity-scorer
-## (strategy: session_id, sourced from the agent-identity request attribute,
-## profileName: prefill) for testing sticky per-agent-session routing instead
-## of prefix-cache locality. The decode profile has no affinity plugin here
-## either, matching nemotron-3-super-pd.values.yaml and upstream's own
+## (strategy: session_id, sourced from the x-llm-d-inference-fairness-id request
+## HEADER, profileName: prefill) for testing sticky per-agent-session routing
+## instead of prefix-cache locality. The decode profile has no affinity plugin
+## here either, matching nemotron-3-super-pd.values.yaml and upstream's own
 ## agentic-serving-gpu.values.yaml (decode profile only ever used
-## decode-filter + active-request-scorer, no prefix/session affinity plugin
-## on that leg in either baseline). agent-identity must be enabled as a
-## top-level plugin so the attribute the scorer reads actually gets
-## populated — see its README (llm-d-inference-scheduler
-## pkg/epp/framework/plugins/requestcontrol/requestheader/agentidentity).
+## decode-filter + active-request-scorer, no prefix/session affinity plugin on
+## that leg in either baseline). The session id comes straight from the header
+## the load generator stamps (inference-perf api.session_id_header_key), so the
+## Alpha-stability `agent-identity` plugin is NOT used — it is stability-gated
+## on the :main EPP build (fails to load without --allow-experimental-plugins)
+## and sourcing the id from the header directly avoids it entirely.
 ##
 ## inferencePool.create is set to false because the InferencePool CRD cannot
 ## be created on all clusters (no cluster-wide CRD-install permission);
@@ -38,7 +39,6 @@ router:
         apiVersion: llm-d.ai/v1alpha1
         kind: EndpointPickerConfig
         plugins:
-        - type: agent-identity
         - type: disagg-headers-handler
         - type: always-disagg-pd-decider
         - type: disagg-profile-handler
@@ -54,7 +54,7 @@ router:
             strategy: session_id
             sessionIdConfig:
               sources:
-                - attribute: agent-identity
+                - header: x-llm-d-inference-fairness-id
         - type: inflight-load-producer
         schedulingProfiles:
         - name: prefill

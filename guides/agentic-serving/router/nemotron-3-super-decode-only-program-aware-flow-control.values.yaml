@@ -1,0 +1,84 @@
+## agentic-serving (GPU / decode-only) guide overrides for the llm-d router —
+## program-aware flow-control variant.
+## Layer on top of: recipes/router/base.values.yaml
+##
+## Identical scheduling profile to the baseline
+## nemotron-3-super-decode-only.values.yaml (prefix-cache-affinity-filter +
+## token-load-scorer) — the ONLY difference vs baseline is the addition of the
+## program-aware-fairness flow-control policy, so an A/B against baseline
+## isolates the effect of workflow-level flow-control fairness alone.
+##
+## program-aware-fairness is a flow-control FairnessPolicy, NOT a scheduling
+## scorer/filter: it decides which per-program queue to dispatch from (programs
+## keyed on the x-llm-d-inference-fairness-id request header), while the
+## schedulingProfiles below still pick WHICH server. It is therefore wired in
+## through a separate `flowControl` block plus the `flowControl` feature gate,
+## on top of — not in place of — the baseline scoring plugins. Run with default
+## params (strategy: las etc.); the `parameters` block is omitted so the plugin
+## inherits its DefaultConfig() (see the program-aware-fairness plugin README).
+##
+## Stability: program-aware-fairness is registered at Beta stability, so unlike
+## the session-affinity Alpha plugins it does not require
+## --allow-experimental-plugins. create.sh still applies that flag (idempotent,
+## harmless here) as it does for every strategy.
+##
+## inferencePool.create is set to false because the InferencePool CRD cannot
+## be created on all clusters (no cluster-wide CRD-install permission);
+## upstream's own guides assume the GAIE CRDs are installed cluster-wide
+## instead (see the guide doc's GAIE CRD prerequisite step) and don't set
+## this override themselves.
+
+router:
+  inferencePool:
+    create: false
+
+  extraServicePorts:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8081
+
+  epp:
+    pluginsConfigFile: "nemotron-3-super-decode-only-program-aware-flow-control-plugins.yaml"
+    pluginsCustomConfig:
+      nemotron-3-super-decode-only-program-aware-flow-control-plugins.yaml: |
+        apiVersion: llm-d.ai/v1alpha1
+        kind: EndpointPickerConfig
+        plugins:
+        - type: token-load-scorer
+        - type: inflight-load-producer
+        - type: approx-prefix-cache-producer
+          parameters:
+            # This guide never uses CPU KV-offloading, so the on-device (GPU)
+            # block count vLLM reports via endpoint metrics is the whole
+            # cacheable footprint — autoTune can size lruCapacityPerServer
+            # and blockSizeTokens from live metrics instead of a manual
+            # guess. (autoTune is disabled in the pd guide instead, since its
+            # CPU-offloaded capacity isn't visible in that same metric.)
+            autoTune: true
+        - type: prefix-cache-affinity-filter
+          parameters:
+            # Measured via recipes/router/calibration/calibrate.sh against a
+            # live nemotron-3-super-decode-only deployment (H100, TP=4,
+            # --max-num-batched-tokens=8192, the vLLM default). Re-measure if
+            # TP, chunk size, quantization, or --max-model-len change.
+            peakPrefillThroughput: 45791
+        # program-aware-fairness flow-control policy. No `parameters` block =>
+        # DefaultConfig() (strategy: las, lasWeightService: 0.8,
+        # lasWeightHeadWait: 0.2, lasDecayFactor: 0.99997, lasHalfLifeSeconds: 0,
+        # evictionTtlSeconds: 3600, evictionSweepSeconds: 300).
+        - type: program-aware-fairness
+        featureGates:
+        - flowControl
+        flowControl:
+          defaultPriorityBand:
+            fairnessPolicyRef: program-aware-fairness
+        schedulingProfiles:
+        - name: default
+          plugins:
+          - pluginRef: prefix-cache-affinity-filter
+          - pluginRef: token-load-scorer
+
+  modelServers:
+    matchLabels:
+      llm-d.ai/guide: "nemotron-3-super-decode-only"

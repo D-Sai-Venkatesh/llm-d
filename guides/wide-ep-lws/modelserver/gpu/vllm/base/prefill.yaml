@@ -35,7 +35,7 @@ spec:
             emptyDir: {}
         containers:
           - name: vllm
-            image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+            image: REPLACE_MODEL_SERVER_IMAGE
             securityContext:
               capabilities:
                 add:
@@ -79,7 +79,7 @@ spec:
                                           "kv_load_failure_policy":"fail"}' \
                   --moe-backend deep_gemm \
                   --all2all-backend deepep_high_throughput
-                
+
                   # To enable tracing, add:
                   # --otlp-traces-endpoint http://otel-collector:4317 \
                   # --collect-detailed-traces all

@@ -1,0 +1,60 @@
+## Router values for the qwen-3-30b-decode-only guide — LAS fairness arm.
+## Layer on top of: recipes/router/base.values.yaml
+
+router:
+  inferencePool:
+    create: false
+
+  extraServicePorts:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8081
+
+  epp:
+    pluginsConfigFile: "qwen-3-30b-decode-only-program-aware-flow-control-plugins.yaml"
+    pluginsCustomConfig:
+      qwen-3-30b-decode-only-program-aware-flow-control-plugins.yaml: |
+        apiVersion: llm-d.ai/v1alpha1
+        kind: EndpointPickerConfig
+        plugins:
+        - type: token-load-scorer
+        - type: inflight-load-producer
+        - type: approx-prefix-cache-producer
+          parameters:
+            autoTune: true
+        - type: prefix-cache-affinity-filter
+          parameters:
+            # Measured 2026-08-18 via recipes/router/calibration/calibrate.sh
+            # (H100, TP=2, CHUNK_SIZE=8192, max_model_len=262k). Re-measure if TP, chunk size,
+            # quantization, or --max-model-len change. The plugin default
+            # (15928) is for dense Qwen3-32B and is 4.3x too low here.
+            peakPrefillThroughput: 68692
+        - type: concurrency-detector
+          parameters:
+            # --max-num-seqs (128) + lookahead buffer, per guides/flow-control/tuning.md.
+            maxConcurrency: 133
+            concurrencyMode: requests
+            headroom: 0.0
+        # No parameters => DefaultConfig(), i.e. strategy: las with
+        # lasWeightService 0.8 / lasWeightHeadWait 0.2 / lasDecayFactor 0.99997.
+        - type: program-aware-fairness
+        featureGates:
+        - flowControl
+        flowControl:
+          # Never expire a queued request; agentic sessions queue for minutes
+          # under the KV pressure these runs create.
+          defaultRequestTTL: "0s"
+          saturationDetector:
+            pluginRef: concurrency-detector
+          defaultPriorityBand:
+            fairnessPolicyRef: program-aware-fairness
+        schedulingProfiles:
+        - name: default
+          plugins:
+          - pluginRef: prefix-cache-affinity-filter
+          - pluginRef: token-load-scorer
+
+  modelServers:
+    matchLabels:
+      llm-d.ai/guide: "qwen-3-30b-decode-only"

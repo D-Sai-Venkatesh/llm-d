@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../../../recipes/modelserver/base/single-host/default
+
+namePrefix: qwen-3-30b-decode-only-
+
+components:
+  - ../../../../../recipes/modelserver/components/images/gpu-vllm/release
+
+labels:
+  - pairs:
+      # Keep this equal to the name of the folder this file sits in
+      # (qwen-3-30b-decode-only). The router and the metrics scraper find the
+      # vLLM pods by this label, so the same string is written in two other
+      # files and all three must match:
+      #   here:  guides/agentic-serving/router/qwen-3-30b-decode-only.values.yaml
+      #   in llm-d-agentic-benchmarking-scripts:
+      #          envs/qwen-3-30b-decode-only/environment.yaml
+      llm-d.ai/guide: qwen-3-30b-decode-only
+      llm-d.ai/model: Qwen3-30B-A3B-Instruct-2507
+      llm-d.ai/accelerator-variant: gpu
+      llm-d.ai/accelerator-vendor: nvidia
+      llm-d.ai/engine-type: vllm
+    includeSelectors: true
+    includeTemplates: true
+
+patches:
+  - path: patch-decode.yaml

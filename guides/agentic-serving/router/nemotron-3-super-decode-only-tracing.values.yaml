@@ -1,0 +1,63 @@
+## agentic-serving (GPU / decode-only) TRACING variant for the llm-d router.
+## Identical to nemotron-3-super-decode-only.values.yaml but with the
+## request-tracer plugin enabled — a per-request JSONL trace observer.
+##
+## Kept as a SEPARATE values file (not folded into the baseline values) on
+## purpose: the tracer uses sink=file with filePath /var/log/epp/traces.jsonl,
+## and if that path isn't writable the plugin fails to load and the EPP
+## CrashLoopBackOffs. So a tracer line in the baseline values would break every
+## normal (tracing-off) baseline run. This variant is only selected when the
+## benchmarking repo's create.sh runs with STRATEGY=baseline-tracing, which also
+## (a) points the EPP at the custom request-tracer image and (b) mounts the
+## per-run PVC's <run>/epp-traces subdir at /var/log/epp. The request-tracer
+## plugin is a request-control observer (not a scorer/filter), so it is a
+## TOP-LEVEL plugin and is NOT referenced in any schedulingProfile.
+
+router:
+  inferencePool:
+    create: false
+
+  extraServicePorts:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8081
+
+  epp:
+    pluginsConfigFile: "nemotron-3-super-decode-only-tracing-plugins.yaml"
+    pluginsCustomConfig:
+      nemotron-3-super-decode-only-tracing-plugins.yaml: |
+        apiVersion: llm-d.ai/v1alpha1
+        kind: EndpointPickerConfig
+        plugins:
+        - type: request-tracer
+          parameters:
+            sink: file
+            filePath: /var/log/epp/traces.jsonl
+        - type: token-load-scorer
+        - type: inflight-load-producer
+        - type: approx-prefix-cache-producer
+          parameters:
+            # This guide never uses CPU KV-offloading, so the on-device (GPU)
+            # block count vLLM reports via endpoint metrics is the whole
+            # cacheable footprint — autoTune can size lruCapacityPerServer
+            # and blockSizeTokens from live metrics instead of a manual
+            # guess. (autoTune is disabled in the pd guide instead, since its
+            # CPU-offloaded capacity isn't visible in that same metric.)
+            autoTune: true
+        - type: prefix-cache-affinity-filter
+          parameters:
+            # Measured via recipes/router/calibration/calibrate.sh against a
+            # live nemotron-3-super-decode-only deployment (H100, TP=4,
+            # --max-num-batched-tokens=8192, the vLLM default). Re-measure if
+            # TP, chunk size, quantization, or --max-model-len change.
+            peakPrefillThroughput: 45791
+        schedulingProfiles:
+        - name: default
+          plugins:
+          - pluginRef: prefix-cache-affinity-filter
+          - pluginRef: token-load-scorer
+
+  modelServers:
+    matchLabels:
+      llm-d.ai/guide: "nemotron-3-super-decode-only"

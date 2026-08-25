@@ -1,0 +1,64 @@
+## agentic-serving (GPU / decode-only, TP=2) guide overrides for the llm-d
+## router. Layer on top of: recipes/router/base.values.yaml
+##
+## Same topology as nemotron-3-super-decode-only.values.yaml (non-
+## disaggregated, single `default` scheduling profile) — the only difference
+## from that file is peakPrefillThroughput, which is TP-dependent and MUST be
+## re-measured for this guide's own deployment (see TODO below), not copied
+## from the TP=4 file.
+##
+## inferencePool.create is set to false because the InferencePool CRD cannot
+## be created on all clusters (no cluster-wide CRD-install permission);
+## upstream's own guides assume the GAIE CRDs are installed cluster-wide
+## instead (see the guide doc's GAIE CRD prerequisite step) and don't set
+## this override themselves.
+
+router:
+  inferencePool:
+    create: false
+
+  extraServicePorts:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8081
+
+  epp:
+    pluginsConfigFile: "nemotron-3-super-decode-only-tp2-plugins.yaml"
+    pluginsCustomConfig:
+      nemotron-3-super-decode-only-tp2-plugins.yaml: |
+        apiVersion: llm-d.ai/v1alpha1
+        kind: EndpointPickerConfig
+        plugins:
+        - type: token-load-scorer
+        - type: inflight-load-producer
+        - type: approx-prefix-cache-producer
+          parameters:
+            # This guide never uses CPU KV-offloading, so the on-device (GPU)
+            # block count vLLM reports via endpoint metrics is the whole
+            # cacheable footprint — autoTune can size lruCapacityPerServer
+            # and blockSizeTokens from live metrics instead of a manual
+            # guess. (autoTune is disabled in the pd guide instead, since its
+            # CPU-offloaded capacity isn't visible in that same metric.)
+            autoTune: true
+        - type: prefix-cache-affinity-filter
+          parameters:
+            # Measured via recipes/router/calibration/calibrate.sh against a
+            # live nemotron-3-super-decode-only-tp2 deployment (H100, TP=2,
+            # --max-num-batched-tokens=8192, the vLLM default) on
+            # 2026-08-25. Re-measure if TP, chunk size, quantization, or
+            # --max-model-len change. For comparison: the TP=4 sibling
+            # (nemotron-3-super-decode-only.values.yaml) measured 45791 —
+            # TP=2's ~27% lower peak prefill throughput is expected, since
+            # prefill is compute-bound and halving tensor parallelism halves
+            # the GPUs sharing that compute per replica.
+            peakPrefillThroughput: 33592
+        schedulingProfiles:
+        - name: default
+          plugins:
+          - pluginRef: prefix-cache-affinity-filter
+          - pluginRef: token-load-scorer
+
+  modelServers:
+    matchLabels:
+      llm-d.ai/guide: "nemotron-3-super-decode-only-tp2"

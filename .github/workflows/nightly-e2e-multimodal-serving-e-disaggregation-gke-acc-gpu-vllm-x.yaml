@@ -1,4 +1,4 @@
-name: Nightly - Optimized Baseline E2E (AMD ROCM)
+name: Nightly - Multimodal Serving E-Disaggregation E2E (GKE GPU)
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ on:
         default: 'epponly'
       monitoring_enabled:
         description: 'Enabled monitoring ("true", "false")'
-        required: false
+        required: true
         type: 'string'
         default: 'false'
       dry_run:
@@ -40,12 +40,6 @@ on:
         description: 'Workload profile to be used during "run" operation (check list under "workload/profiles")'
         required: false
         default: 'sanity_random.yaml'
-#        default: 'guide_optimized-baseline_1.yaml'
-        type: 'string'
-      wait_timeout:
-        description: 'Timeout in seconds to wait for benchmark pods to complete'
-        required: false
-        default: '3000'
         type: 'string'
       cleanup:
         description: 'Cleanup the llm-d stack stood up by this workflow'
@@ -62,15 +56,15 @@ on:
 #    branches:
 #      - main
 
-  schedule:
-    - cron: '0 10 * * *'  # 10:00 UTC daily
+#  schedule:
+#    - cron: '0 4 * * *'  # 04:00 UTC daily (staggered)
 
 permissions:
   contents: write
   actions: read
 
 concurrency:
-  group: nightly-e2e-optimized-baseline-amd-rocm
+  group: nightly-e2e-multimodal-serving-e-disaggregation-gke-gpu
   cancel-in-progress: true
 
 jobs:
@@ -79,28 +73,25 @@ jobs:
     with:
       scenario_dir: ${{ inputs.scenario_dir || 'guides' }}
       standup_method: ${{ inputs.standup_method || 'kustomize' }}
-      standup_scenario: ${{ inputs.standup_scenario || 'optimized-baseline' }}
+      standup_scenario: ${{ inputs.standup_scenario || 'multimodal-serving/e-disaggregation' }}
       decode_pods: ${{ inputs.decode_pods || 'auto' }}
       prefill_pods: ${{ inputs.prefill_pods || 'auto' }}
-      accelerator_type: ${{ inputs.accelerator_type || 'amd' }}
+      accelerator_type: ${{ inputs.accelerator_type || 'gpu' }}
       backend_type: ${{ inputs.backend_type || 'vllm' }}
-      infra_provider: ${{ inputs.infra_provider || 'amd-ci' }}
+      infra_provider: ${{ inputs.infra_provider || 'e-pd/gke' }}
       connector: ${{ inputs.connector || '' }}
-      cluster_namespace: ${{ inputs.cluster_namespace || 'llm-d-nightly-inference-rocm-gpu' }}
-      persistent_model: ${{ inputs.persistent_model || 'true' }}
-      helm_release: ${{ inputs.helm_release || 'llmdbenchcicdr-rocm' }}
-      workspace_dir: ${{ inputs.workspace_dir || '/tmp/llmdbenchcicdk-rocm' }}
+      cluster_namespace: ${{ inputs.cluster_namespace || 'llm-d-nightly-multimodal-e-disaggregation-gke-gpu' }}
+      helm_release: ${{ inputs.helm_release || 'llmdbenchmmsedis-gke' }}
+      workspace_dir: ${{ inputs.workspace_dir || '/tmp/llmdbenchmmsedis-gke' }}
       bucket_project: ${{ inputs.bucket_project || 'llm-d-scale' }}
       bucket_provider: ${{ inputs.bucket_provider || 'gcs' }}
-      bucket_path: ${{ inputs.bucket_path || 'llm-d-benchmarks/regressions/optimized-baseline' }}
+      bucket_path: ${{ inputs.bucket_path || 'llm-d-benchmarks/regressions/multimodal-serving-e-disaggregation' }}
       gateway_class: ${{ inputs.gateway_class || 'epponly' }}
       monitoring_enabled: ${{ inputs.monitoring_enabled || 'false' }}
       dry_run: ${{ inputs.dry_run || 'false' }}
       verbose: ${{ inputs.verbose || 'false' }}
       harness: ${{ inputs.harness || 'inference-perf' }}
-#      workload: ${{ inputs.workload || 'sanity_random.yaml' }}
-      workload: ${{ inputs.workload || 'guide_optimized-baseline_1.yaml' }}
-      wait_timeout: ${{ inputs.wait_timeout || '3000' }}
+      workload: ${{ inputs.workload || 'sanity_random.yaml' }}
       cleanup: ${{ inputs.cleanup || 'true' }}
     secrets: inherit
 
@@ -109,8 +100,8 @@ jobs:
     if: always() && inputs.update_badge != 'false'
     uses: llm-d/llm-d-infra/.github/workflows/reusable-update-badge.yaml@main
     with:
-      badge_name: optimized-baseline-rocm
-      badge_label: "VLLM ROCm"
+      badge_name: multimodal-serving-e-disaggregation-gke
+      badge_label: "VLLM GPU"
       result: ${{ needs.nightly.result }}
       dry_run: ${{ inputs.dry_run || 'false' }}
       failure_category: ${{ needs.nightly.outputs.failure_category }}
